@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html class="h-full">
+	<head>
+		<meta charset="utf-8" />
+		<title>Riff Explorer</title>
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1"
+		/>
+		<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+		<script
+			src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
+			integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg=="
+			crossorigin="anonymous"
+			referrerpolicy="no-referrer"
+		></script>
+		<script
+			src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"
+			integrity="sha512-a+SUDuwNzXDvz4XrIcXHuCf089/iJAoN4lmrXJg18XnduKK6YlDHNRalv4yd1N40OKI80tFidF+rqTFKGPoWFQ=="
+			crossorigin="anonymous"
+			referrerpolicy="no-referrer"
+		></script>
+		<link
+			rel="stylesheet"
+			type="text/css"
+			href="https://cdn.jsdelivr.net/gh/greghub/green-audio-player/dist/css/green-audio-player.min.css"
+		/>
+		<script src="https://cdn.jsdelivr.net/gh/greghub/green-audio-player/dist/js/green-audio-player.min.js"></script>
+		<style>
+			@import "tailwindcss";
+
+			@layer base {
+				select option,
+				select option:not(:checked),
+				select option:checked {
+					background-color: var(--color-gray-700) !important;
+				}
+			}
+
+			@layer components {
+				.riff-audio-container.green-audio-player {
+					background-color: var(--color-gray-900) !important;
+					width: 100% !important;
+					height: 48px !important;
+					padding-left: 18px !important;
+					padding-right: 18px !important;
+				}
+				.green-audio-player .controls {
+					color: var(--color-indigo-200) !important;
+				}
+				.green-audio-player .slider {
+					background-color: var(--color-indigo-200) !important;
+				}
+				.green-audio-player .gap-progress,
+				.green-audio-player .pin {
+					background-color: var(--color-indigo-400) !important;
+				}
+			}
+		</style>
+	</head>
+	<body class="bg-gray-950 text-indigo-200 font-[Consolas] h-full">
+		<header class="bg-gray-900 w-full text-2xl p-2 text-indigo-300">
+			Riff Explorer
+		</header>
+		<div
+			id="login-panel"
+			class="flex justify-center h-full items-center"
+		>
+			<div
+				id="login-form"
+				class="flex flex-col h-min bg-gray-900 p-4 rounded-xl space-y-2"
+			>
+				<input
+					id="password-input"
+					class="bg-gray-800 p-1 read-only:bg-transparent read-only:cursor-default"
+					placeholder="Password..."
+				/>
+				<button
+					id="log-in-button"
+					class="p-0.5 hover:bg-gray-800 disabled:bg-gray-700 disabled:cursor-default hover:cursor-pointer uppercase"
+					onclick="decryptRiffPack()"
+				>
+					unlock
+				</button>
+			</div>
+		</div>
+		<div
+			id="home-panel"
+			class="hidden p-3"
+		>
+			<div class="flex flex-col">
+				<div class="flex bg-gray-800 p-1">
+					<div>Group By:</div>
+					<select
+						id="riff-grouping-dropdown"
+						class="w-50 mx-5"
+						onchange="riffGroupingChanged()"
+					>
+						<option value="BPM">BPM</option>
+						<option value="Status">Status</option>
+					</select>
+				</div>
+				<hr />
+				<div
+					id="riffs-panel"
+					class="flex flex-col"
+				></div>
+			</div>
+		</div>
+		<script>
+			const initializationVectorSize = 16;
+
+			console.log("Starting Riff Explorer...");
+
+			const loginPanel = document.getElementById("login-panel");
+			/**
+			 * @type {HTMLInputElement}
+			 */
+			const passwordInput = document.getElementById("password-input");
+			/**
+			 * @type {HTMLButtonElement}
+			 */
+			const logInButton = document.getElementById("log-in-button");
+			const homePanel = document.getElementById("home-panel");
+			/**
+			 * @type {HTMLSelectElement}
+			 */
+			const riffGroupingDropdown = document.getElementById(
+				"riff-grouping-dropdown"
+			);
+			const riffsPanel = document.getElementById("riffs-panel");
+
+			const zip = new JSZip();
+			let manifest;
+
+			let currentGrouping = "BPM";
+
+			function riffGroupingChanged() {
+				currentGrouping = riffGroupingDropdown.value;
+
+				populateRiffsPanel();
+			}
+
+			function populateRiffsPanel() {
+				riffsPanel.innerHTML = null;
+
+				const grouping = Object.groupBy(
+					manifest.Riffs,
+					(riff) => riff[currentGrouping]
+				);
+
+				const sortedGrouping = Object.entries(grouping).sort(
+					([keyA], [keyB]) => {
+						const numA = Number(keyA);
+						const numB = Number(keyB);
+
+						if (!isNaN(numA) && !isNaN(numB)) {
+							return numB - numA;
+						} else {
+							return keyA.localeCompare(keyB);
+						}
+					}
+				);
+
+				for (const [key, riffs] of sortedGrouping) {
+					if (!Object.prototype.hasOwnProperty.call(grouping, key)) {
+						continue;
+					}
+
+					const sectionId = `riff-section-${key}`;
+
+					function statusToString(status) {
+						return ["Idle", "In Use", "Rejected"][status];
+					}
+
+					let keyString;
+
+					switch (currentGrouping) {
+						case "BPM":
+							keyString = key.toString();
+							break;
+
+						case "Status":
+							keyString = statusToString(key);
+							break;
+					}
+
+					riffsPanel.insertAdjacentHTML(
+						"afterbegin",
+						`<div>
+							<section class="text-3xl m-1">${keyString}</section>
+							<div id="${sectionId}" class="grid grid-cols-3 gap-x-2"></div>
+						</div>`
+					);
+
+					const section = document.getElementById(sectionId);
+
+					for (const riff of riffs) {
+						const riffTileId = `riff-tile-${riff.Id}`;
+
+						section.insertAdjacentHTML(
+							"beforeend",
+							`<div id=${riffTileId} class="bg-gray-800 p-2 rounded-md my-2 w-full">
+								<span class="text-xl flex justify-between">
+									<span>#${riff.Index.toString().padStart(2, "0")}</span>
+									<span class="mx-1">${riff.Note}</span>
+									<span class="text-indigo-400 text-base">
+										<span>BPM: ${riff.BPM}</span>
+										<span> | </span>
+										<span>Status: <span class="${
+											riff.Status == 2
+												? "text-red-700"
+												: riff.Status == 1
+												? "text-green-600"
+												: ""
+										}">${statusToString(riff.Status)}</span>
+									</span>
+									</span>
+								</span>
+								<div class="riff-audio-container"></div>
+							</div>`
+						);
+
+						const riffTile = document.getElementById(riffTileId);
+
+						riffTile
+							.getElementsByClassName("riff-audio-container")
+							.item(0)
+							.insertAdjacentElement("beforeend", riff.audio);
+					}
+				}
+
+				GreenAudioPlayer.init({
+					selector: ".riff-audio-container",
+					stopOthersOnPlay: true,
+				});
+			}
+
+			/**
+			 * @returns {Boolean}
+			 */
+			async function decryptRiffPack() {
+				logInButton.disabled = true;
+				passwordInput.readOnly = true;
+
+				const logInButtonDotsHandle = setInterval(logInButtonDots, 1 * 1000);
+				logInButtonDots();
+
+				console.log("  Fetching riff pack...");
+				const response = await fetch("/riff.pack");
+
+				console.log("  Extracting data...");
+				const payload = await response.arrayBuffer();
+				console.log(`    ${payload.byteLength} bytes received...`);
+				const initializationVector = await payload.slice(
+					0,
+					initializationVectorSize
+				);
+				const encryptedRiffPack = await payload.slice(initializationVectorSize);
+
+				console.log(
+					`  IV sample: ${bytesToString(
+						new Uint8Array(initializationVector, 0, 8)
+					)}`
+				);
+				console.log(
+					`  Encrypted data sample: ${bytesToString(
+						new Uint8Array(encryptedRiffPack, 0, 8)
+					)}`
+				);
+
+				console.log("  Generating key...");
+				const salt = CryptoJS.enc.Utf8.parse(
+					"lis3a7u45yjhvnoliu7aswtnbvblwou7opna"
+				);
+				console.log(`    Salt length: ${salt.sigBytes} bytes`);
+
+				const pbkdf2Worker = new Worker("pbkdf2_worker.js");
+
+				const pbkdf2WorkerResult = new Promise((resolve, reject) => {
+					pbkdf2Worker.onmessage = (message) => {
+						const [words, sigBytes] = event.data;
+
+						resolve(CryptoJS.lib.WordArray.create(words, sigBytes));
+					};
+				});
+
+				pbkdf2Worker.postMessage([
+					passwordInput.value,
+					"lis3a7u45yjhvnoliu7aswtnbvblwou7opna",
+				]);
+
+				const key = await pbkdf2WorkerResult;
+
+				pbkdf2Worker.terminate();
+
+				console.log(`    Generated ${key.sigBytes} bytes. Sample: `);
+				console.log(`      ${bytesToString(wordArrayToByteArray(key, 8))}`);
+
+				console.log("  Decrypting data...");
+				const riffPack = CryptoJS.AES.decrypt(
+					{ ciphertext: arrayBufferToWordArray(encryptedRiffPack) },
+					key,
+					{
+						iv: arrayBufferToWordArray(initializationVector),
+					}
+				);
+
+				console.log(`    Decrypted ${riffPack.sigBytes} bytes. Sample: `);
+				console.log(
+					`      ${bytesToString(wordArrayToByteArray(riffPack, 8))}`
+				);
+
+				console.log("  Parsing data...");
+
+				try {
+					await zip.loadAsync(wordArrayToByteArray(riffPack));
+				} catch (error) {
+					console.log("    Failed to parse! Password is probably wrong.");
+
+					logInButton.disabled = false;
+					passwordInput.readOnly = false;
+
+					logInButton.textContent = "unlock";
+
+					return false;
+				} finally {
+					clearInterval(logInButtonDotsHandle);
+				}
+
+				console.log("    Loaded zip...");
+				console.log(zip.files);
+
+				manifest = JSON.parse(await zip.file("manifest.json").async("string"));
+
+				console.log("    Parsed manifest...");
+				console.log(manifest);
+
+				for (const riff of manifest.Riffs) {
+					const audio = new Audio(
+						URL.createObjectURL(await zip.file(riff.Id).async("blob"))
+					);
+
+					audio.classList.add("w-full");
+
+					riff.audio = audio;
+				}
+
+				populateRiffsPanel();
+
+				loginPanel.classList.add("hidden");
+				homePanel.classList.remove("hidden");
+
+				return true;
+			}
+		</script>
+		<script>
+			let logInDotsCount = 0;
+
+			function logInButtonDots() {
+				if (logInDotsCount++ >= 3) {
+					logInDotsCount = 0;
+				}
+				logInButton.textContent = `unlocking${".".repeat(logInDotsCount)}`;
+			}
+		</script>
+		<script>
+			function bytesToString(bytes) {
+				return bytes
+					.map((byte) => byte.toString(16).padStart(2, "0"))
+					.join(" ");
+			}
+
+			function arrayBufferToWordArray(arrayBuffer) {
+				const u8 = new Uint8Array(arrayBuffer);
+				const words = [];
+
+				for (let i = 0; i < u8.length; i += 4) {
+					words.push(
+						(u8[i] << 24) | (u8[i + 1] << 16) | (u8[i + 2] << 8) | u8[i + 3]
+					);
+				}
+
+				return CryptoJS.lib.WordArray.create(words, u8.length);
+			}
+
+			function wordArrayToByteArray(wordArray, length) {
+				const words = wordArray.words;
+				const sigBytes = length || wordArray.sigBytes;
+				const bytes = [];
+
+				for (let i = 0; i < sigBytes; i++) {
+					const word = words[i >>> 2];
+					bytes.push((word >>> (24 - (i % 4) * 8)) & 0xff);
+				}
+
+				return bytes;
+			}
+		</script>
+	</body>
+</html>
