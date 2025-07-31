@@ -247,7 +247,7 @@
 				logInButtonDots();
 
 				console.log("  Fetching riff pack...");
-				const response = await fetch("/riff.pack");
+				const response = await fetch("riff.pack");
 
 				console.log("  Extracting data...");
 				const payload = await response.arrayBuffer();
