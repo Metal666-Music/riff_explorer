@@ -343,7 +343,8 @@ public partial class Program {
 
 		None,
 		InUse,
-		Rejected
+		Rejected,
+		New
 
 	}
 

@@ -170,7 +170,7 @@
 					const sectionId = `riff-section-${key}`;
 
 					function statusToString(status) {
-						return ["Idle", "In Use", "Rejected"][status];
+						return ["Idle", "In Use", "Rejected", "* New *"][status];
 					}
 
 					let keyString;
@@ -208,7 +208,9 @@
 										<span>BPM: ${riff.BPM}</span>
 										<span> | </span>
 										<span>Status: <span class="${
-											riff.Status == 2
+											riff.Status == 3
+												? "text-fuchsia-300"
+												: riff.Status == 2
 												? "text-red-700"
 												: riff.Status == 1
 												? "text-green-600"
